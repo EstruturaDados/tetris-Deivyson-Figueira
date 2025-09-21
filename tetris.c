@@ -352,6 +352,7 @@ void trocaMultipla(Fila* fila, Pilha* pilha) {
         printf("Troca realizada entre os 3 primeiros da fila e os 3 da pilha.");
         printf("\n-------------------------------------------------------\n");
     } else {
+        printf("\n-------------------------------------------------------\n");
         printf("                          Ação");
         printf("\n-------------------------------------------------------\n");
         printf("Não foi possível realizar a troca. A pilha não tem 3 pecas.");
