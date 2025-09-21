@@ -25,14 +25,35 @@ typedef struct Pilha {
     int capacidade;
 } Pilha;
 
-// Variável global para o ID da peça, garantindo que seja único
+// Tipos de ação para o histórico
+typedef enum {
+    JOGAR,
+    RESERVAR
+} TipoAcao;
+
+// Estrutura para registrar as ações (para o 'desfazer')
+typedef struct Acao {
+    TipoAcao tipo;
+    Peca pecaAntiga; // Peça que foi removida da fila
+    Peca pecaNova;   // Peça que foi gerada
+} Acao;
+
+// Pilha para armazenar o histórico de ações
+typedef struct PilhaAcoes {
+    Acao acoes[10]; // Capacidade para 10 ações de histórico
+    int topo;
+} PilhaAcoes;
+
+// Variáveis globais para o ID e histórico de peças
 int proximoIdPeca = 0;
+PilhaAcoes historico;
 
 // --- Protótipos das funções ---
 
 // Funções de inicialização
 void inicializarFila(Fila* fila);
 void inicializarPilha(Pilha* pilha);
+void inicializarHistorico();
 
 // Funções de manipulação de peças e estruturas
 Peca gerarPeca();
@@ -52,12 +73,17 @@ void reservarPeca(Fila* fila, Pilha* pilha);
 void usarPecaReservada(Pilha* pilha);
 void trocarPeca(Fila* fila, Pilha* pilha);
 void trocaMultipla(Fila* fila, Pilha* pilha);
+void desfazerJogada(Fila* fila, Pilha* pilha);
+void inverterFilaComPilha(Fila* fila, Pilha* pilha);
+
+// Funções de histórico
+void pushAcao(TipoAcao tipo, Peca pecaAntiga, Peca pecaNova);
+Acao popAcao();
 
 // --- Implementação das funções ---
 
 /**
  * @brief Inicializa a fila circular com 5 peças geradas aleatoriamente.
- * * @param fila Ponteiro para a estrutura da fila.
  */
 void inicializarFila(Fila* fila) {
     fila->frente = 0;
@@ -69,7 +95,6 @@ void inicializarFila(Fila* fila) {
     printf("=======================================================\n");
     for (int i = 0; i < 5; i++) {
         Peca novaPeca = gerarPeca();
-        // Adiciona a peça no final da fila
         fila->tras = (fila->tras + 1) % fila->capacidade;
         fila->pecas[fila->tras] = novaPeca;
     }
@@ -77,7 +102,6 @@ void inicializarFila(Fila* fila) {
 
 /**
  * @brief Inicializa a pilha, deixando-a vazia.
- * * @param pilha Ponteiro para a estrutura da pilha.
  */
 void inicializarPilha(Pilha* pilha) {
     pilha->topo = -1;
@@ -85,8 +109,14 @@ void inicializarPilha(Pilha* pilha) {
 }
 
 /**
+ * @brief Inicializa a pilha de histórico.
+ */
+void inicializarHistorico() {
+    historico.topo = -1;
+}
+
+/**
  * @brief Gera uma nova peça com nome aleatório ('I', 'O', 'T', 'L') e ID único.
- * * @return Retorna a nova peça gerada.
  */
 Peca gerarPeca() {
     Peca novaPeca;
@@ -98,20 +128,14 @@ Peca gerarPeca() {
 
 /**
  * @brief Adiciona uma peça ao final da fila (enqueue).
- * * @param fila Ponteiro para a estrutura da fila.
- * @param peca A peça a ser adicionada.
  */
 void enqueue(Fila* fila, Peca peca) {
-    // A fila tem tamanho fixo, então sempre haverá espaço para uma nova peça
-    // se uma for removida
     fila->tras = (fila->tras + 1) % fila->capacidade;
     fila->pecas[fila->tras] = peca;
 }
 
 /**
  * @brief Remove a peça da frente da fila (dequeue).
- * * @param fila Ponteiro para a estrutura da fila.
- * @return Retorna a peça removida.
  */
 Peca dequeue(Fila* fila) {
     Peca pecaRemovida = fila->pecas[fila->frente];
@@ -121,62 +145,74 @@ Peca dequeue(Fila* fila) {
 
 /**
  * @brief Adiciona uma peça no topo da pilha (push).
- * * @param pilha Ponteiro para a estrutura da pilha.
- * @param peca A peça a ser adicionada.
  */
 void push(Pilha* pilha, Peca peca) {
     if (pilha->topo < pilha->capacidade - 1) {
         pilha->pecas[++pilha->topo] = peca;
-        printf("Peça [ %c %d ] adicionada a pilha.\n", peca.nome, peca.id);
     } else {
-        printf("A pilha está cheia. Nãoe possível adicionar mais peças.\n");
+        printf("A pilha está cheia. Não é possível adicionar mais peças.\n");
     }
 }
 
 /**
  * @brief Remove a peça do topo da pilha (pop).
- * * @param pilha Ponteiro para a estrutura da pilha.
- * @return Retorna a peça removida.
  */
 Peca pop(Pilha* pilha) {
     if (pilha->topo >= 0) {
         return pilha->pecas[pilha->topo--];
-    } else {
-        // Retorna uma peça 'nula' ou com valores padrão para indicar erro
-        printf("A pilha está vazia. Não há peças para remover.\n");
-        return (Peca){.nome = ' ', .id = -1};
+    }
+    printf("A pilha está vazia. Não há peças para remover.\n");
+    return (Peca){.nome = ' ', .id = -1};
+}
+
+/**
+ * @brief Adiciona uma ação ao histórico.
+ */
+void pushAcao(TipoAcao tipo, Peca pecaAntiga, Peca pecaNova) {
+    if (historico.topo < 9) {
+        historico.topo++;
+        historico.acoes[historico.topo].tipo = tipo;
+        historico.acoes[historico.topo].pecaAntiga = pecaAntiga;
+        historico.acoes[historico.topo].pecaNova = pecaNova;
     }
 }
 
 /**
+ * @brief Remove e retorna a última ação do histórico.
+ */
+Acao popAcao() {
+    if (historico.topo >= 0) {
+        return historico.acoes[historico.topo--];
+    }
+    return (Acao){.tipo = -1};
+}
+
+/**
  * @brief Exibe o estado atual da fila e da pilha.
- * * @param fila Ponteiro para a estrutura da fila.
- * @param pilha Ponteiro para a estrutura da pilha.
  */
 void exibirEstado(Fila* fila, Pilha* pilha) {
     printf("\n=======================================================\n");
     printf("|                     Estado atual                    |\n");
     printf("=======================================================\n");
     
-    // Exibe a fila
     printf("\n-------------------------------------------------------\n");
     printf("Fila de peças\t");
     for (int i = 0; i < fila->capacidade; i++) {
         int indice = (fila->frente + i) % fila->capacidade;
         printf("[ %c %d ] ", fila->pecas[indice].nome, fila->pecas[indice].id);
-    }printf("\n-------------------------------------------------------\n");
+    }
+    printf("\n-------------------------------------------------------\n");
     
-    // Exibe a pilha
     printf("Pilha de reserva\t(Topo -> Base): ");
     if (pilha->topo < 0) {
         printf("Pilha vazia.");
     } else {
         for (int i = pilha->topo; i >= 0; i--) {
             printf("[ %c %d ] ", pilha->pecas[i].nome, pilha->pecas[i].id);
-        
-        }    
+        }
     }
-     printf("\n-------------------------------------------------------\n");
+    printf("\n-------------------------------------------------------\n");
+    printf("\n");
 }
 
 /**
@@ -184,22 +220,20 @@ void exibirEstado(Fila* fila, Pilha* pilha) {
  */
 void menu() {
     printf("\n-------------------------------------------------------\n");
-    printf("                           Opções                        ");
-    printf("\n-------------------------------------------------------\n");
+    printf("                           Opções                        \n");
+    printf("-------------------------------------------------------\n");
     printf("1 - Jogar peça da frente da fila\n");
     printf("2 - Enviar peça da fila para a pilha de reserva\n");
     printf("3 - Usar peça da pilha de reserva\n");
     printf("4 - Trocar peça da frente da fila com o topo da pilha\n");
-    printf("5 - Trocar os 3 primeiros da fila com as 3 peças da pilha\n");
-    printf("0 - Sair");
+    printf("5 - Desfazer última jogada (Jogar/Reservar)\n");
+    printf("6 - Inverter fila com pilha\n");
+    printf("0 - Sair\n");
     printf("\n-------------------------------------------------------\n");
 }
 
 /**
  * @brief Gerencia a ação escolhida pelo usuário.
- * * @param opcao Opção numérica escolhida.
- * @param fila Ponteiro para a estrutura da fila.
- * @param pilha Ponteiro para a estrutura da pilha.
  */
 void realizarAcao(int opcao, Fila* fila, Pilha* pilha) {
     switch (opcao) {
@@ -216,7 +250,10 @@ void realizarAcao(int opcao, Fila* fila, Pilha* pilha) {
             trocarPeca(fila, pilha);
             break;
         case 5:
-            trocaMultipla(fila, pilha);
+            desfazerJogada(fila, pilha);
+            break;
+        case 6:
+            inverterFilaComPilha(fila, pilha);
             break;
         case 0:
             printf("Encerrando o programa. Até mais!\n");
@@ -227,43 +264,46 @@ void realizarAcao(int opcao, Fila* fila, Pilha* pilha) {
 }
 
 /**
- * @brief Remove a peça da frente da fila e gera uma nova para manter o tamanho.
- * * @param fila Ponteiro para a estrutura da fila.
+ * @brief Remove a peça da frente da fila e gera uma nova. Salva a ação no histórico.
  */
 void jogarPeca(Fila* fila) {
-    Peca pecaJogada = dequeue(fila);
+    Peca pecaAntiga = fila->pecas[fila->frente];
+    Peca novaPeca = gerarPeca();
+
+    dequeue(fila);
+    enqueue(fila, novaPeca);
+
+    pushAcao(JOGAR, pecaAntiga, novaPeca);
     printf("\n-------------------------------------------------------\n");
     printf("                         Ação");
     printf("\n-------------------------------------------------------\n");
-    printf("A peça [ %c %d ] foi jogada.\n", pecaJogada.nome, pecaJogada.id);
-
-    // Gera uma nova peça para manter a fila cheia
-    Peca novaPeca = gerarPeca();
-    enqueue(fila, novaPeca);
-    printf("A peça [ %c %d ] foi adicionada ao final da fila.", novaPeca.nome, novaPeca.id);
+    printf("A peça [ %c %d ] foi jogada. Uma nova peça [ %c %d ] foi adicionada.", pecaAntiga.nome, pecaAntiga.id, novaPeca.nome, novaPeca.id);
     printf("\n-------------------------------------------------------\n");
 }
 
 /**
- * @brief Move a peça da frente da fila para a pilha de reserva.
- * * @param fila Ponteiro para a estrutura da fila.
- * @param pilha Ponteiro para a estrutura da pilha.
+ * @brief Move a peça da frente da fila para a pilha de reserva. Salva a ação no histórico.
  */
 void reservarPeca(Fila* fila, Pilha* pilha) {
     if (pilha->topo < pilha->capacidade - 1) {
-        Peca pecaReservada = dequeue(fila);
-        push(pilha, pecaReservada);
+        Peca pecaAntiga = fila->pecas[fila->frente];
+        Peca novaPeca = gerarPeca();
+
+        dequeue(fila);
+        enqueue(fila, novaPeca);
+        push(pilha, pecaAntiga);
+
+        pushAcao(RESERVAR, pecaAntiga, novaPeca);
         printf("\n-------------------------------------------------------\n");
         printf("                         Ação");
         printf("\n-------------------------------------------------------\n");
-        printf("A peça [ %c %d ] foi movida da fila para a pilha.\n", pecaReservada.nome, pecaReservada.id);
-        
-        // Gera uma nova peça para manter a fila cheia
-        Peca novaPeca = gerarPeca();
-        enqueue(fila, novaPeca);
+        printf("A peça [ %c %d ] foi movida da fila para a pilha.\n", pecaAntiga.nome, pecaAntiga.id);
         printf("Uma nova peça [ %c %d ] foi adicionada ao final da fila.", novaPeca.nome, novaPeca.id);
         printf("\n-------------------------------------------------------\n");
     } else {
+        printf("\n-------------------------------------------------------\n");
+        printf("                         Ação");
+        printf("\n-------------------------------------------------------\n");
         printf("Não foi possível reservar. A pilha está cheia.");
         printf("\n-------------------------------------------------------\n");
     }
@@ -271,7 +311,6 @@ void reservarPeca(Fila* fila, Pilha* pilha) {
 
 /**
  * @brief Remove a peça do topo da pilha de reserva.
- * * @param pilha Ponteiro para a estrutura da pilha.
  */
 void usarPecaReservada(Pilha* pilha) {
     if (pilha->topo >= 0) {
@@ -292,8 +331,6 @@ void usarPecaReservada(Pilha* pilha) {
 
 /**
  * @brief Troca a peça da frente da fila com a do topo da pilha.
- * * @param fila Ponteiro para a estrutura da fila.
- * @param pilha Ponteiro para a estrutura da pilha.
  */
 void trocarPeca(Fila* fila, Pilha* pilha) {
     if (pilha->topo >= 0) {
@@ -306,7 +343,7 @@ void trocarPeca(Fila* fila, Pilha* pilha) {
         printf("\n-------------------------------------------------------\n");
         printf("                         Ação");
         printf("\n-------------------------------------------------------\n");
-        printf("Troca realizada entre a peça [ %c %d ] da fila \nE a peça [ %c %d ] da pilha.", tempFila.nome, tempFila.id, tempPilha.nome, tempPilha.id);
+        printf("Troca realizada entre a peça [ %c %d ] da fila e a peça [ %c %d ] da pilha.", tempFila.nome, tempFila.id, tempPilha.nome, tempPilha.id);
         printf("\n-------------------------------------------------------\n");
     } else {
         printf("\n-------------------------------------------------------\n");
@@ -319,8 +356,6 @@ void trocarPeca(Fila* fila, Pilha* pilha) {
 
 /**
  * @brief Troca as 3 primeiras peças da fila com as 3 peças da pilha, se houverem.
- * * @param fila Ponteiro para a estrutura da fila.
- * @param pilha Ponteiro para a estrutura da pilha.
  */
 void trocaMultipla(Fila* fila, Pilha* pilha) {
     if (pilha->topo == pilha->capacidade - 1) { // Verifica se a pilha está cheia (3 peças)
@@ -360,28 +395,88 @@ void trocaMultipla(Fila* fila, Pilha* pilha) {
     }
 }
 
+/**
+ * @brief Desfaz a última ação de Jogar ou Reservar.
+ */
+void desfazerJogada(Fila* fila, Pilha* pilha) {
+    Acao ultimaAcao = popAcao();
+
+    if (ultimaAcao.tipo == JOGAR) {
+        printf("\nDesfazendo a última ação 'Jogar'...\n");
+        // Remove a peca nova que foi adicionada e coloca a peca antiga de volta
+        fila->tras = (fila->tras - 1 + fila->capacidade) % fila->capacidade;
+        enqueue(fila, ultimaAcao.pecaAntiga);
+
+    } else if (ultimaAcao.tipo == RESERVAR) {
+        printf("\nDesfazendo a última ação 'Reservar'...\n");
+        // Remove a peca nova da fila e a peca do topo da pilha, colocando a peca antiga de volta na fila
+        fila->tras = (fila->tras - 1 + fila->capacidade) % fila->capacidade;
+        pop(pilha);
+        enqueue(fila, ultimaAcao.pecaAntiga);
+
+    } else {
+        printf("\n-------------------------------------------------------\n");
+        printf("                          Ação");
+        printf("\n-------------------------------------------------------\n");
+        printf("Não há ações para desfazer ou a ação não é reversível.");
+        printf("\n-------------------------------------------------------\n");
+    }
+}
+
+/**
+ * @brief Troca o conteúdo total da fila com o conteúdo da pilha.
+ */
+// Lógica para a função Inverter
+void inverterFilaComPilha(Fila* fila, Pilha* pilha) {
+    Peca tempFilaArray[5];
+    Peca tempPilhaArray[3];
+    int i;
+    
+    // 1. Move a fila para um array temporário
+    for(i = 0; i < fila->capacidade; i++) {
+        tempFilaArray[i] = dequeue(fila);
+    }
+    
+    // 2. Move a pilha para um array temporário
+    for(i = 0; i < pilha->capacidade; i++) {
+        tempPilhaArray[i] = pop(pilha);
+    }
+    
+    // 3. Move o conteúdo da pilha para a fila
+    for(i = 0; i < pilha->capacidade; i++) {
+        enqueue(fila, tempPilhaArray[i]);
+    }
+    
+    // 4. Move o conteúdo da fila para a pilha (pegando apenas os 3 primeiros elementos)
+    for(i = 2; i >= 0; i--) {
+        push(pilha, tempFilaArray[i]);
+    }
+    
+    printf("\n-------------------------------------------------------\n");
+    printf("                          Ação");
+    printf("\n-------------------------------------------------------\n");
+    printf("Conteúdo da fila e da pilha foram invertidos!");
+    printf("\n-------------------------------------------------------\n");
+}
 // --- Função principal (main) ---
 
 int main() {
-    // Inicializa a semente para a função rand()
     srand(time(NULL));
     
     Fila filaDePecas;
     Pilha pilhaDeReserva;
     int opcao;
 
-    // Inicializa as estruturas de dados
     inicializarFila(&filaDePecas);
     inicializarPilha(&pilhaDeReserva);
+    inicializarHistorico();
 
-    // Loop principal do programa
     do {
         exibirEstado(&filaDePecas, &pilhaDeReserva);
         menu();
         printf("Sua escolha: ");
         scanf("%d", &opcao);
-        printf("\n");
-
+        
         realizarAcao(opcao, &filaDePecas, &pilhaDeReserva);
 
     } while (opcao != 0);
